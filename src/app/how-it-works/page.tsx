@@ -27,7 +27,7 @@ export default function HowItWorksPage() {
         <h2>Four steps to a page guests can use.</h2>
         <div>{steps.map((step, index) => <article key={step.title}><span>{String(index + 1).padStart(2, '0')}</span><div><h3>{step.title}</h3><p>{step.body}</p></div></article>)}</div>
       </section>
-      <section className="marketing-callout"><h2>Payment setup comes before checkout.</h2><p>Event pages and ticket options can be prepared now. Live ticket payments and attendee records will appear after the payment integration is configured.</p><Link className="text-link" href="/pricing">View the platform fee</Link></section>
+      <section className="marketing-callout"><h2>Secure checkout, clear records.</h2><p>Guests pay through Bachs-hosted checkout. Gatepass confirms paid orders from verified payment notices and records each order and the 3% platform fee in the organizer dashboard.</p><Link className="text-link" href="/pricing">View the platform fee</Link></section>
       <MarketingFooter/>
     </main>
   );

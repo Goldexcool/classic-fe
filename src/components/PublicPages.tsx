@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import Logo from '@/components/Logo';
 import { apiRequest, Event, eventHref, money } from '@/lib/api';
 
@@ -44,6 +44,13 @@ export function TenantEventsPage({ tenantSlug }: { tenantSlug: string }) {
 
 export default function PublicEventPage({ tenantSlug, eventSlug }: { tenantSlug: string; eventSlug: string }) {
   const [state, setState] = useState<LoadState<Event>>({ value: null, error: '', loading: true });
+  const [ticketTypeId, setTicketTypeId] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [buyerName, setBuyerName] = useState('');
+  const [buyerEmail, setBuyerEmail] = useState('');
+  const [checkoutError, setCheckoutError] = useState('');
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const requestKey = useRef<string | null>(null);
 
   useEffect(() => {
     apiRequest<Event>(`/public/${encodeURIComponent(tenantSlug)}/events/${encodeURIComponent(eventSlug)}`)
@@ -52,6 +59,36 @@ export default function PublicEventPage({ tenantSlug, eventSlug }: { tenantSlug:
   }, [tenantSlug, eventSlug]);
 
   const event = state.value;
+  const ticket = event?.ticketTypes?.find((item) => item.id === ticketTypeId) ?? event?.ticketTypes?.[0];
+  const available = ticket ? Math.max(ticket.quantity - (ticket.sold_count ?? 0), 0) : 0;
+
+  async function startCheckout(eventSubmit: FormEvent<HTMLFormElement>) {
+    eventSubmit.preventDefault();
+    if (!event || !ticket) return;
+    setCheckoutLoading(true);
+    setCheckoutError('');
+    requestKey.current ??= crypto.randomUUID();
+    try {
+      const checkout = await apiRequest<{ checkoutUrl: string }>(
+        `/public/${encodeURIComponent(tenantSlug)}/events/${encodeURIComponent(eventSlug)}/checkout`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            requestKey: requestKey.current,
+            ticketTypeId: ticket.id,
+            quantity,
+            buyerName,
+            buyerEmail,
+          }),
+        },
+      );
+      window.location.assign(checkout.checkoutUrl);
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : 'Checkout could not be started. Please try again.');
+      setCheckoutLoading(false);
+    }
+  }
+
   return (
     <main className="public-page">
       <header className="public-header"><Link href={`/${encodeURIComponent(tenantSlug)}/events`} aria-label="Back to organizer events"><Logo/></Link><span>{event?.tenant_name ?? 'Event details'}</span></header>
@@ -73,13 +110,24 @@ export default function PublicEventPage({ tenantSlug, eventSlug }: { tenantSlug:
               <section className="public-tickets" aria-labelledby="ticket-heading">
                 <div className="public-ticket-title"><h2 id="ticket-heading">Tickets</h2><span>Choose what works for you</span></div>
                 {event.ticketTypes?.map((ticket) => (
-                  <div className="public-ticket-row" key={ticket.id}>
+                  <label className={`public-ticket-row public-ticket-option${ticket.id === (ticketTypeId || event.ticketTypes?.[0]?.id) ? ' public-ticket-option-selected' : ''}`} key={ticket.id}>
+                    <input type="radio" name="ticketType" value={ticket.id} checked={ticket.id === (ticketTypeId || event.ticketTypes?.[0]?.id)} onChange={() => setTicketTypeId(ticket.id)} disabled={Math.max(ticket.quantity - (ticket.sold_count ?? 0), 0) === 0}/>
                     <span><strong>{ticket.name}</strong><small>{Math.max(ticket.quantity - (ticket.sold_count ?? 0), 0)} available</small></span>
                     <strong>{money(ticket.price_minor, ticket.currency)}</strong>
-                  </div>
+                  </label>
                 ))}
-                <button className="button button-dark button-wide checkout-button" type="button" disabled>Continue to checkout</button>
-                <p className="checkout-note">Checkout opens after payment settings are added. Gatepass’s platform fee is 3% per paid order.</p>
+                <form className="public-checkout-form" onSubmit={startCheckout}>
+                  <label>Your name<input autoComplete="name" maxLength={120} required value={buyerName} onChange={(e) => setBuyerName(e.target.value)} /></label>
+                  <label>Email for your ticket<input type="email" autoComplete="email" maxLength={254} required value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} /></label>
+                  <label>Number of tickets
+                    <input type="number" min={1} max={Math.min(10, available)} value={quantity} onChange={(e) => setQuantity(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} disabled={!available}/>
+                  </label>
+                  {checkoutError && <p className="checkout-error" role="alert">{checkoutError}</p>}
+                  <button className="button button-dark button-wide checkout-button" type="submit" disabled={!ticket || available === 0 || checkoutLoading}>
+                    {checkoutLoading ? 'Connecting to checkout…' : 'Continue to secure checkout'}
+                  </button>
+                </form>
+                <p className="checkout-note">Secure payment is handled by Bachs. Gatepass tracks a 3% platform fee on paid orders.</p>
               </section>
             </div>
           </>

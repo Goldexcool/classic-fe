@@ -308,7 +308,7 @@ export default function DashboardApp() {
                   </div>
                 )}
               </section>
-              <p className="dashboard-footnote">Gatepass’s platform fee is 3% per paid order. Checkout opens when production payment settings are connected.</p>
+              <p className="dashboard-footnote">Bachs-hosted checkout is available on published events. Gatepass records a 3% platform fee on each verified paid order.</p>
             </>
           )}
         </main>
