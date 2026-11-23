@@ -257,7 +257,7 @@ export default function DashboardApp() {
         <main className="dashboard-content">
           <NoticeBar notice={notice} onDismiss={() => setNotice(null)}/>
           {showEditor ? (
-            <EventEditor busy={busy} onCancel={() => setShowEditor(false)} onSave={saveEvent}/>
+            <EventEditor busy={busy} tenantSlug={tenant.slug} token={token} onCancel={() => setShowEditor(false)} onSave={saveEvent}/>
           ) : salesEvent ? (
             <EventSales token={token} tenant={tenant} event={salesEvent} onBack={() => setSalesEvent(null)}/>
           ) : activeTab === 'overview' ? (
@@ -481,7 +481,7 @@ function aggregateSales(events: Event[]) {
   return [...totals.values()];
 }
 
-function EventEditor({ busy, onCancel, onSave }: { busy: boolean; onCancel: () => void; onSave: (input: EventInput) => Promise<void> }) {
+function EventEditor({ busy, tenantSlug, token, onCancel, onSave }: { busy: boolean; tenantSlug: string; token: string; onCancel: () => void; onSave: (input: EventInput) => Promise<void> }) {
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   const [slugEdited, setSlugEdited] = useState(false);
@@ -495,6 +495,37 @@ function EventEditor({ busy, onCancel, onSave }: { busy: boolean; onCancel: () =
   const [contactEmail, setContactEmail] = useState('');
   const [tickets, setTickets] = useState<TicketDraft[]>([newTicket()]);
   const [localError, setLocalError] = useState('');
+  const [uploadingImages, setUploadingImages] = useState(0);
+
+  async function uploadImage(file: File, target: 'cover' | 'gallery') {
+    setLocalError('');
+    setUploadingImages((count) => count + 1);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const result = await apiRequest<{ url: string }>(`/tenants/${encodeURIComponent(tenantSlug)}/uploads/images`, {
+        method: 'POST',
+        token,
+        body: form,
+      });
+      if (target === 'cover') setCoverImageUrl(result.url);
+      else setGalleryText((current) => [current.trim(), result.url].filter(Boolean).join('\n'));
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Image upload failed. Paste a public HTTPS URL instead.');
+    } finally {
+      setUploadingImages((count) => Math.max(0, count - 1));
+    }
+  }
+
+  async function uploadGallery(files: FileList | null) {
+    const selected = Array.from(files ?? []);
+    const currentCount = galleryText.split(/\r?\n/).map((url) => url.trim()).filter(Boolean).length;
+    if (currentCount + selected.length > 8) {
+      setLocalError('Choose up to eight gallery images.');
+      return;
+    }
+    for (const file of selected) await uploadImage(file, 'gallery');
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -555,9 +586,11 @@ function EventEditor({ busy, onCancel, onSave }: { busy: boolean; onCancel: () =
             <label className="field"><span>Starts on</span><input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} required/></label>
             <label className="field field-full"><span>Location <small>(optional)</small></span><input value={venue} onChange={(event) => setVenue(event.target.value)} maxLength={180} placeholder="Venue or online event"/></label>
             <label className="field field-full"><span>About this event <small>(optional)</small></span><textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={5000} rows={4} placeholder="Share a few details with your guests."/></label>
-            <label className="field field-full"><span>Cover image URL <small>(optional)</small></span><input type="url" inputMode="url" value={coverImageUrl} onChange={(event) => setCoverImageUrl(event.target.value)} maxLength={2048} placeholder="https://…"/><small>Use a publicly accessible HTTPS image link.</small></label>
+            <label className="field field-full"><span>Cover image <small>(optional)</small></span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploadingImages > 0} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadImage(file, 'cover'); event.target.value = ''; }}/><small>Upload a JPG, PNG, or WebP up to 8 MB, or paste a public HTTPS image URL below. Uploads use your R2 bucket.</small></label>
+            <label className="field field-full"><span>Cover image URL <small>(optional)</small></span><input type="url" inputMode="url" value={coverImageUrl} onChange={(event) => setCoverImageUrl(event.target.value)} maxLength={2048} placeholder="https://…"/></label>
             {coverImageUrl.trim() && <div className="event-image-preview field-full"><Image src={coverImageUrl.trim()} alt="Event cover preview" width={1000} height={360} unoptimized/><span>Cover preview</span></div>}
-            <label className="field field-full"><span>Gallery image URLs <small>(optional, one per line)</small></span><textarea value={galleryText} onChange={(event) => setGalleryText(event.target.value)} maxLength={16000} rows={3} placeholder={'https://…\nhttps://…'}/><small>Up to eight more images. Image hosting and uploads can be connected later.</small></label>
+            <label className="field field-full"><span>Upload gallery images <small>(optional)</small></span><input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploadingImages > 0} onChange={(event) => { void uploadGallery(event.target.files); event.target.value = ''; }}/><small>Up to eight additional JPG, PNG, or WebP images, 8 MB each.</small></label>
+            <label className="field field-full"><span>Gallery image URLs <small>(optional, one per line)</small></span><textarea value={galleryText} onChange={(event) => setGalleryText(event.target.value)} maxLength={16000} rows={3} placeholder={'https://…\nhttps://…'}/><small>Use public HTTPS image links or upload gallery images above.</small></label>
             <label className="field field-full"><span>Schedule or program <small>(optional)</small></span><textarea value={eventProgram} onChange={(event) => setEventProgram(event.target.value)} maxLength={5000} rows={4} placeholder="Doors open at 5:30 PM…"/></label>
             <label className="field field-full"><span>Additional information <small>(optional)</small></span><textarea value={additionalInfo} onChange={(event) => setAdditionalInfo(event.target.value)} maxLength={5000} rows={4} placeholder="Accessibility, age limits, what to bring, or other guest information."/></label>
             <label className="field"><span>Contact email <small>(optional)</small></span><input type="email" autoComplete="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} maxLength={254} placeholder="events@example.com"/></label>
@@ -578,7 +611,7 @@ function EventEditor({ busy, onCancel, onSave }: { busy: boolean; onCancel: () =
           </div>
         </section>
         {localError && <p className="form-error" role="alert">{localError}</p>}
-        <div className="editor-actions"><button className="quiet-button" type="button" onClick={onCancel}>Cancel</button><button className="button button-dark" type="submit" disabled={busy}>{busy ? 'Saving draft…' : 'Save draft'}<Icon name="arrow" size={16}/></button></div>
+        <div className="editor-actions"><button className="quiet-button" type="button" onClick={onCancel}>Cancel</button><button className="button button-dark" type="submit" disabled={busy || uploadingImages > 0}>{uploadingImages > 0 ? 'Uploading images…' : busy ? 'Saving draft…' : 'Save draft'}<Icon name="arrow" size={16}/></button></div>
       </form>
     </section>
   );
